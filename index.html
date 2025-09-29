@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>泌尿健康扭蛋機 v1</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 Inter 字體 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f7f9; /* 淺藍灰色背景 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 10vh; /* 修正為vh以適應行動裝置 */
+            padding: 20px;
+        }
+        /* 扭蛋機立體化 */
+        .gacha-machine {
+            background-color: #c02a2a; /* 更深的紅色基底 */
+            box-shadow: 0 40px 50px rgba(0, 0, 0, 0.3), inset 0 -10px 10px rgba(160, 20, 20, 0.5); 
+            transition: transform 0.3s ease;
+        }
+        .gacha-machine:hover {
+            transform: translateY(-5px);
+        }
+        /* 扭蛋機的「玻璃」部分 - 增加內陰影以示深度 */
+        .gacha-container {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(3px);
+            border: 5px solid #a01010; /* 更深的紅色邊框 */
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.2); /* 內陰影增加深度 */
+            overflow: hidden; 
+        }
+        
+        /* 把手轉動動畫：順時鐘兩圈 (720度) - 速度減慢至 1.5s */
+        .knob-turning-full {
+            animation: fullTurn 1.5s ease-out forwards; 
+        }
+        @keyframes fullTurn {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(720deg); } 
+        }
+
+        /* 扭蛋彈出的動畫 (用於 1.5s 延遲後彈出效果) */
+        .prize-out {
+            /* 加入 transform 的過渡時間，使其在旋轉時也能平滑出現 */
+            animation: prizeFall 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+        }
+        @keyframes prizeFall {
+            0% { transform: scale(0) rotate(0deg); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        
+        /* 膠囊樣式 - 在球池中 */
+        .capsule {
+            width: 50px; 
+            height: 50px; 
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem; 
+            color: white;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.4); 
+            position: absolute; 
+            opacity: 0.9; 
+            z-index: 1; 
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            /* 關鍵：讓所有 capsule 的位置變化平滑過渡 */
+            transition: all 0.5s ease-in-out; 
+        }
+        /* 扭蛋球池容器 */
+        .capsule-pool {
+            position: absolute;
+            inset: 0;
+            padding: 10px;
+        }
+
+        /* ------------------------------------- */
+        /* 獎品出口改為立體凹槽 */
+        #prize-chute-container {
+            width: 100px; 
+            height: 100px; 
+            border-radius: 12px; 
+            background-color: #1f2937; 
+            padding: 5px; 
+            box-shadow: inset 0 5px 10px rgba(0, 0, 0, 0.5), 0 5px 10px rgba(0, 0, 0, 0.2); 
+            transform: perspective(100px) rotateX(10deg); 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* 凹槽內部，用於放置膠囊球 */
+        #prize-chute {
+            width: 70px; 
+            height: 70px;
+            background-color: #374151; /* 凹槽內側顏色 */
+            border-radius: 10px; 
+            border: 2px solid #555;
+            transition: all 0.3s ease;
+            cursor: default; 
+            font-size: 0; 
+            display: flex; 
+            justify-content: center;
+            align-items: center;
+        }
+        #prize-chute:not([disabled]) {
+            cursor: pointer;
+        }
+
+        /* ------------------------------------- */
+        /* 投幣口改為小細長方形 */
+        #coin-button {
+            width: 1rem; /* 極窄化 */
+            height: 3rem; 
+            background-color: #374151; /* 基礎色為深灰/黑 */
+            border-radius: 0.25rem; 
+            border: 2px solid #1f2937;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5); 
+            font-size: 0; 
+            transition: all 0.15s ease;
+        }
+
+        /* 投幣口動畫 (準備狀態) */
+        .coin-ready-flash {
+            animation: pulseCoin 1.5s infinite alternate; /* 慢速交替閃爍 */
+        }
+        @keyframes pulseCoin {
+            0% { background-color: #374151; } /* 深色開始 */
+            100% { background-color: #fcd34d; } /* 亮黃色閃爍 */
+        }
+        
+        /* 投幣口動畫 (插入瞬間) */
+        .coin-inserted-flash {
+            background-color: #fcd34d !important; /* 插入瞬間亮黃色 */
+            transition: background-color 0.1s ease-in-out;
+        }
+        
+        /* 膠囊球出現時的樣式 (取代 prize-chute 內容) */
+        .capsule-in-chute {
+            width: 50px !important;
+            height: 50px !important;
+            border-radius: 50% !important;
+            /* 讓背景色和陰影正確顯示 */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3), inset 0 0 8px rgba(255, 255, 255, 0.5);
+            font-size: 1.5rem !important;
+            color: white !important;
+            background-color: transparent !important; /* 防止被覆蓋 */
+            border: 2px solid rgba(255, 255, 255, 0.8) !important;
+            transition: all 0.3s ease, transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* 增加 transform 過渡 */
+        }
+
+        /* 自定義 Modal 樣式 */
+        #custom-modal > div {
+            transition: transform 0.3s ease-out;
+        }
+        .scale-100 {
+            transform: scale(1) !important;
+        }
+    </style>
+</head>
+<body>
+
+<div class="p-4 w-full max-w-4xl flex flex-col lg:flex-row gap-8">
+
+    <!-- 扭蛋機本體 (左側/上側) -->
+    <div class="gacha-machine w-full lg:w-1/2 mx-auto rounded-2xl p-4 flex flex-col items-center">
+        <!-- 標題調整：v1 縮小 -->
+        <h1 class="text-3xl font-bold text-white mb-4 shadow-sm">泌尿健康扭蛋機 <span class="text-xl font-normal">v1</span></h1>
+        
+        <!-- 扭蛋展示區 (透明圓筒) -->
+        <div class="gacha-container w-full h-64 rounded-xl border-4 border-gray-700 p-2 relative">
+            
+            <!-- 機台狀態提示 (上移) -->
+            <div class="absolute text-center text-gray-700 font-semibold z-20 top-4 left-1/2 transform -translate-x-1/2 status-display">
+                <p id="machine-status" class="text-xl text-gray-800">請先投入金幣 (1/1)</p>
+                <div id="audio-status" class="text-xs text-gray-500 mt-1">首次互動後音效將啟用 🔊</div>
+                <div id="loading-spinner" class="hidden animate-spin rounded-full h-8 w-8 border-b-2 border-red-700 mt-2 mx-auto"></div>
+            </div>
+
+            <!-- 扭蛋球池：由 JavaScript 動態生成和移除 -->
+            <div class="capsule-pool" id="capsule-pool">
+                <!-- 膠囊球將在這裡動態生成 -->
+            </div>
+        </div>
+
+        <!-- 投幣/轉動機構 (紅色的機身下半部) -->
+        <div class="w-full bg-red-800 p-4 mt-4 rounded-xl flex justify-around items-center border-t-4 border-gray-700 relative">
+            
+            <!-- 投幣口 (左側) - 極窄化 -->
+            <div class="flex flex-col items-center absolute left-6 top-1/2 transform -translate-y-1/2 coin-status-container">
+                <button id="coin-button" onclick="insertCoin()" class="hover:opacity-80 transition duration-150 active:scale-95 disabled:opacity-80">
+                    <!-- 空白內容，由 CSS 決定尺寸和形狀 -->
+                </button>
+                <p id="coin-status" class="text-sm text-yellow-300 mt-1">投入金幣</p>
+            </div>
+            
+            <!-- 轉動把手 (中間) -->
+            <button id="knob-button" onclick="pullLever()" class="mx-auto relative bg-gray-800 p-2 rounded-full cursor-pointer hover:bg-gray-900 transition duration-150 active:scale-95 disabled:opacity-50" disabled>
+                <div id="knob" class="w-12 h-12 bg-gray-500 rounded-full flex items-center justify-center transition duration-150">
+                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path></svg>
+                </div>
+            </button>
+        </div>
+
+        <!-- 獎品出口 (立體凹槽) -->
+        <div class="w-full flex justify-center -mt-4">
+            <div id="prize-chute-container" class="mt-4">
+                <!-- 獎品出口按鈕 (凹槽內部/膠囊球出現位置) -->
+                <button id="prize-chute" disabled>
+                    <!-- 預設無內容 -->
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 抽獎結果與收藏 (右側/下側) -->
+    <div class="w-full lg:w-1/2 bg-white rounded-2xl p-6 shadow-xl">
+        <h2 class="text-2xl font-bold text-gray-800 border-b pb-2 mb-4">我的健康收藏</h2>
+
+        <!-- 最新抽獎結果顯示區 -->
+        <div class="mb-6 border-2 border-dashed border-red-300 p-4 rounded-lg">
+            <h3 class="text-xl font-semibold text-red-600 mb-2">最新抽獎：</h3>
+            <div id="latest-prize-display" class="min-h-[80px] flex flex-col justify-center items-start">
+                <p class="text-gray-500">尚無最新獎品。</p>
+            </div>
+        </div>
+
+        <!-- 收藏清單 -->
+        <div>
+            <h3 class="text-xl font-semibold text-gray-800 mb-2">所有收藏 (<span id="total-prizes">0</span> 個):</h3>
+            <div id="prize-collection" class="max-h-60 overflow-y-auto space-y-3 p-2 bg-gray-50 rounded-lg">
+                <p id="loading-message" class="text-sm text-gray-500">正在載入收藏數據...</p>
+            </div>
+        </div>
+
+        <!-- 認證訊息 -->
+        <p class="mt-6 text-xs text-gray-400">
+            用戶 ID: <span id="user-id-display">載入中...</span>
+            <span id="auth-status" class="ml-2 font-medium text-blue-500"></span>
+        </p>
+    </div>
+</div>
+
+<script type="module">
+    // 引入 Firebase SDK
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    // 引入 Tone.js 庫 (用於音效)
+    import * as Tone from "https://cdn.jsdelivr.net/npm/tone@14.7.58/build/Tone.js";
+
+    // 設定 Firebase Log 等級 (除錯用)
+    setLogLevel('debug');
+
+    // 取得環境變數
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+    
+    // 應用程式狀態變數
+    let db, auth;
+    let userId = 'loading'; 
+    let isAuthReady = false;
+    let hasCoin = false; 
+    let currentPrize = null; 
+    let isAudioActive = false; 
+
+    // DOM 元素
+    const knobButton = document.getElementById('knob-button');
+    const knob = document.getElementById('knob');
+    const machineStatus = document.getElementById('machine-status');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const prizeChute = document.getElementById('prize-chute');
+    const latestPrizeDisplay = document.getElementById('latest-prize-display');
+    const prizeCollectionEl = document.getElementById('prize-collection');
+    const totalPrizesEl = document.getElementById('total-prizes');
+    const userIdDisplay = document.getElementById('user-id-display');
+    const authStatusEl = document.getElementById('auth-status');
+    const coinButton = document.getElementById('coin-button');
+    const coinStatus = document.getElementById('coin-status');
+    const audioStatusEl = document.getElementById('audio-status');
+    const capsulePoolEl = document.getElementById('capsule-pool');
+
+
+    // Tone.js 音效設定
+    let synth = null;
+    let noiseSynth = null; 
+
+    // 泌尿科主題獎品清單 (含彩蛋)
+    const prizes = [
+        { id: 1, name: '膀胱君的貼心提醒', icon: '💧', color: 'bg-blue-500', base_color: '#3b82f6', description: '保持水分充足，深黃色尿液是警訊！多喝水，你的膀胱君會感謝你。' },
+        { id: 2, name: '腎臟超人的預防秘訣', icon: '💎', color: 'bg-yellow-500', base_color: '#f59e0b', description: '避免高鈉飲食，幫助腎臟超人遠離結石危機。' },
+        { id: 3, name: '前列腺守護者的問候', icon: '🛡️', color: 'bg-red-500', base_color: '#ef4444', description: '50歲以上的男性，定期檢查是關鍵！關心前列腺健康。' },
+        { id: 4, name: '泌尿道健康卡', icon: '🚽', color: 'bg-green-500', base_color: '#22c55e', description: '不要憋尿！每次上廁所都是對泌尿道最好的保護。' },
+        { id: 5, name: '健康黃金法則', icon: '✨', color: 'bg-purple-500', base_color: '#a855f7', description: '規律運動，維持正常體重，對整體泌尿系統都有益處。' },
+        { id: 6, name: '咖啡因與茶的平衡', icon: '☕', color: 'bg-indigo-500', base_color: '#6366f1', description: '過量咖啡因和茶類可能刺激膀胱，適度就好！' },
+        // 彩蛋獎品 (ID 7)
+        { id: 7, name: '健達奇趣蛋', icon: '🍫', color: 'bg-pink-300', base_color: '#f9a8d4', description: '恭喜！這是機率超低的彩蛋獎品！希望裡面是好玩的玩具！' },
+    ];
+    
+    // 膠囊球池的靜態位置數據 (包含少量的彩蛋)
+    let capsulePoolData = [
+        // 底部第一層 (80% - 90% top)
+        { color: 'linear-gradient(135deg, #38bdf8 50%, #0369a1 50%)', icon: '💧', left: 3, top: 80, rotate: 10, z: 10 },
+        { color: 'linear-gradient(135deg, #facc15 50%, #b45309 50%)', icon: '💎', left: 13, top: 75, rotate: -5, z: 12 },
+        { color: 'linear-gradient(135deg, #f43f5e 50%, #9f1239 50%)', icon: '🛡️', left: 25, top: 85, rotate: 25, z: 15 },
+        { color: 'linear-gradient(135deg, #10b981 50%, #065f46 50%)', icon: '🚽', left: 40, top: 78, rotate: -15, z: 11 },
+        { color: 'linear-gradient(135deg, #a855f7 50%, #6d28d9 50%)', icon: '✨', left: 55, top: 88, rotate: 40, z: 14 },
+        { color: 'linear-gradient(135deg, #6366f1 50%, #3730a3 50%)', icon: '☕', left: 70, top: 82, rotate: 0, z: 13 },
+        { color: 'linear-gradient(135deg, #fb7185 50%, #be123c 50%)', icon: '💧', left: 85, top: 75, rotate: 18, z: 11 },
+        { color: 'linear-gradient(135deg, #2563eb 50%, #1e3a8a 50%)', icon: '💎', left: 5, top: 90, rotate: -25, z: 16 }, 
+        // 稀有彩蛋 1
+        { color: 'linear-gradient(135deg, #f9a8d4 50%, #db2777 50%)', icon: '🍫', left: 90, top: 80, rotate: 35, z: 15 }, 
+
+        // 中層 (60% - 75% top)
+        { color: 'linear-gradient(135deg, #06b6d4 50%, #0e7490 50%)', icon: '💎', left: 8, top: 60, rotate: -22, z: 14 },
+        { color: 'linear-gradient(135deg, #4ade80 50%, #16a34a 50%)', icon: '🛡️', left: 30, top: 68, rotate: 5, z: 10 },
+        { color: 'linear-gradient(135deg, #ffedd5 50%, #fef3c7 50%)', icon: '🚽', left: 55, top: 65, rotate: 30, z: 15, text_color: '#6d28d9' },
+        { color: 'linear-gradient(135deg, #ef4444 50%, #b91c1c 50%)', icon: '✨', left: 75, top: 70, rotate: -5, z: 12 },
+        { color: 'linear-gradient(135deg, #3b82f6 50%, #1d4ed8 50%)', icon: '☕', left: 88, top: 60, rotate: 15, z: 13 },
+        { color: 'linear-gradient(135deg, #10b981 50%, #065f46 50%)', icon: '💧', left: 45, top: 70, rotate: 10, z: 14 }, 
+        { color: 'linear-gradient(135deg, #a78bfa 50%, #6d28d9 50%)', icon: '☕', left: 20, top: 62, rotate: -18, z: 11 }, 
+        
+        // 中高層 (40% - 58% top)
+        { color: 'linear-gradient(135deg, #facc15 50%, #b45309 50%)', icon: '💧', left: 0, top: 48, rotate: 70, z: 10 },
+        { color: 'linear-gradient(135deg, #a78bfa 50%, #6d28d9 50%)', icon: '💎', left: 20, top: 55, rotate: -10, z: 11 },
+        { color: 'linear-gradient(135deg, #f43f5e 50%, #9f1239 50%)', icon: '🛡️', left: 45, top: 58, rotate: 50, z: 14 },
+        { color: 'linear-gradient(135deg, #10b981 50%, #065f46 50%)', icon: '🚽', left: 15, top: 40, rotate: -30, z: 10 },
+        { color: 'linear-gradient(135deg, #f97316 50%, #c2410c 50%)', icon: '✨', left: 68, top: 50, rotate: 20, z: 11 },
+        { color: 'linear-gradient(135deg, #3b82f6 50%, #1d4ed8 50%)', icon: '☕', left: 80, top: 45, rotate: -10, z: 13 },
+        { color: 'linear-gradient(135deg, #fb7185 50%, #be123c 50%)', icon: '💧', left: 95, top: 40, rotate: 5, z: 14 },
+        { color: 'linear-gradient(135deg, #06b6d4 50%, #0e7490 50%)', icon: '💎', left: 35, top: 48, rotate: -15, z: 12 },
+        { color: 'linear-gradient(135deg, #4ade80 50%, #16a34a 50%)', icon: '🛡️', left: 58, top: 40, rotate: 45, z: 15 }, 
+        { color: 'linear-gradient(135deg, #facc15 50%, #b45309 50%)', icon: '🚽', left: 85, top: 55, rotate: -20, z: 10 }, 
+        
+        // 頂層點綴 (30% - 35% top)
+        { color: 'linear-gradient(135deg, #a78bfa 50%, #6d28d9 50%)', icon: '✨', left: 25, top: 30, rotate: 15, z: 9 },
+        { color: 'linear-gradient(135deg, #4ade80 50%, #16a34a 50%)', icon: '🛡️', left: 60, top: 35, rotate: -20, z: 9 },
+        // 稀有彩蛋 2
+        { color: 'linear-gradient(135deg, #f9a8d4 50%, #db2777 50%)', icon: '🍫', left: 10, top: 35, rotate: 30, z: 8 }, 
+        { color: 'linear-gradient(135deg, #3b82f6 50%, #1d4ed8 50%)', icon: '💎', left: 75, top: 30, rotate: -5, z: 8 }, 
+        { color: 'linear-gradient(135deg, #f97316 50%, #c2410c 50%)', icon: '☕', left: 40, top: 35, rotate: 10, z: 7 }, 
+    ];
+
+
+    /**
+     * 自訂彈出視窗取代 alert()
+     */
+    function alertModal(message) {
+        // 尋找現有的 modal 或創建一個新的
+        let modal = document.getElementById('custom-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'custom-modal';
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 transition-opacity duration-300 opacity-0 pointer-events-none';
+            modal.innerHTML = `
+                <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm mx-4 transform scale-95 transition-transform duration-300">
+                    <p id="modal-message" class="text-gray-800 font-semibold mb-4"></p>
+                    <button onclick="document.getElementById('custom-modal').classList.add('opacity-0', 'pointer-events-none'); document.getElementById('custom-modal').querySelector('div').classList.remove('scale-100');" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition">
+                        確定
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+        
+        document.getElementById('modal-message').textContent = message;
+        
+        // 顯示 modal
+        setTimeout(() => {
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.querySelector('div').classList.add('scale-100');
+        }, 10);
+    }
+    window.alertModal = alertModal; // 讓它能在 HTML 內調用
+
+
+    /**
+     * 動態渲染膠囊球池
+     */
+    function renderCapsulePool() {
+        capsulePoolEl.innerHTML = ''; // 清空現有內容
+        capsulePoolData.forEach(data => {
+            const capsule = document.createElement('span');
+            capsule.className = 'capsule';
+            capsule.innerHTML = data.icon;
+            capsule.style.cssText = `
+                background: ${data.color};
+                left: ${data.left}%;
+                top: ${data.top}%;
+                transform: rotate(${data.rotate}deg);
+                z-index: ${data.z};
+                ${data.text_color ? `color: ${data.text_color};` : ''}
+            `;
+            capsulePoolEl.appendChild(capsule);
+        });
+    }
+
+    /**
+     * 初始化 Tone.js
+     */
+    function initTone() {
+        if (isAudioActive) return;
+        try {
+            if (Tone.context.state !== 'running') {
+                Tone.start();
+            }
+
+            synth = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "triangle" },
+                envelope: { release: 0.1, attack: 0.005 }
+            }).toDestination();
+            
+            noiseSynth = new Tone.NoiseSynth({
+                noise: { type: "white" },
+                envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.1 }
+            }).toDestination();
+
+            isAudioActive = true;
+            audioStatusEl.textContent = '音效已啟用 ✅';
+
+        } catch (e) {
+            console.warn("Tone.js 初始化失敗:", e);
+            audioStatusEl.textContent = '音效無法啟用 ❌';
+        }
+    }
+
+    /**
+     * 播放音效
+     */
+    function playSFX(type) {
+        if (!isAudioActive) return;
+        try {
+            switch (type) {
+                case 'coin':
+                    synth.triggerAttackRelease("C5", "8n");
+                    break;
+                case 'turn':
+                    noiseSynth.triggerAttackRelease("16n", Tone.now(), 0.3); 
+                    break;
+                case 'drop':
+                    synth.triggerAttackRelease(["G4", "C4"], "16n", Tone.now(), 0.8);
+                    break;
+            }
+        } catch (e) {
+            console.warn("音效播放失敗:", e);
+        }
+    }
+
+
+    /**
+     * 啟動 Firestore 實時監聽
+     */
+    function listenToPrizes(currentUserId) {
+        if (!db || !currentUserId) return;
+        
+        // Firestore 私有資料路徑: /artifacts/{appId}/users/{userId}/urology_gacha/prizes
+        const prizeDocRef = doc(db, 'artifacts', appId, 'users', currentUserId, 'urology_gacha', 'prizes');
+        
+        // 開始監聽文件
+        onSnapshot(prizeDocRef, (docSnap) => {
+            prizeCollectionEl.innerHTML = ''; // 清空現有列表
+            const loadingMessage = document.getElementById('loading-message');
+            if (loadingMessage) loadingMessage.remove(); // 移除載入中訊息
+
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                const prizesArray = data.collectedPrizes || [];
+                
+                // 由於 Firestore 不支援 orderBy，我們在客戶端進行時間戳排序（最新的在最上面）
+                prizesArray.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); 
+
+                totalPrizesEl.textContent = prizesArray.length;
+                
+                if (prizesArray.length === 0) {
+                    prizeCollectionEl.innerHTML = '<p class="text-sm text-gray-500 italic">還沒有任何收藏。試著扭一個吧！</p>';
+                } else {
+                    prizesArray.forEach((prizeEntry, index) => {
+                        // 尋找獎品細節
+                        const prizeDetail = prizes.find(p => p.id === prizeEntry.id) || { name: '未知獎品', icon: '❓', color: 'bg-gray-400' };
+
+                        const item = document.createElement('div');
+                        item.className = 'flex items-center space-x-3 p-2 bg-white rounded-lg shadow-sm';
+                        item.innerHTML = `
+                            <span class="text-2xl" style="color: ${prizeDetail.base_color};">${prizeDetail.icon}</span>
+                            <div class="flex-grow">
+                                <p class="font-medium text-gray-700">${prizeDetail.name} ${prizeDetail.id === 7 ? '<span class="text-xs text-pink-600 font-bold ml-1">(彩蛋)</span>' : ''}</p>
+                                <p class="text-xs text-gray-400">${new Date(prizeEntry.timestamp).toLocaleString('zh-TW', { dateStyle: 'short', timeStyle: 'medium' })}</p>
+                            </div>
+                        `;
+                        prizeCollectionEl.appendChild(item);
+                    });
+                }
+            } else {
+                // 文件不存在 (用戶第一次使用)
+                totalPrizesEl.textContent = 0;
+                prizeCollectionEl.innerHTML = '<p class="text-sm text-gray-500 italic">還沒有任何收藏。試著扭一個吧！</p>';
+            }
+        }, (error) => {
+            console.error("Firestore 監聽失敗:", error);
+            alertModal("錯誤：無法即時更新您的收藏列表。");
+        });
+    }
+
+    /**
+     * 初始化 Firebase 和身份驗證
+     */
+    async function initFirebase() {
+        if (Object.keys(firebaseConfig).length === 0) {
+            console.error("Firebase 配置遺失。應用程式將無法儲存資料。");
+            authStatusEl.textContent = '未連線 (無配置)';
+            isAuthReady = true;
+            return;
+        }
+
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            // 處理身份驗證
+            if (initialAuthToken) {
+                // 使用自訂 Token 登入 (Canvas 環境)
+                await signInWithCustomToken(auth, initialAuthToken);
+            } else {
+                // 匿名登入 (非 Canvas 環境的備用方案)
+                await signInAnonymously(auth);
+            }
+
+            // 設置身份驗證狀態監聽器
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    userIdDisplay.textContent = userId;
+                    authStatusEl.textContent = '已驗證';
+                    isAuthReady = true;
+                    // 驗證完成後，開始監聽資料
+                    listenToPrizes(userId);
+                } else {
+                    // 這應該只發生在沒有 custom token 且 signInAnonymously 成功的情況下
+                    userId = 'anonymous_user'; 
+                    userIdDisplay.textContent = userId + ' (匿名)';
+                    authStatusEl.textContent = '匿名模式';
+                    isAuthReady = true;
+                    listenToPrizes(userId); 
+                }
+            });
+
+        } catch (error) {
+            console.error("Firebase 初始化或登入失敗:", error);
+            userId = 'error';
+            userIdDisplay.textContent = '錯誤!';
+            authStatusEl.textContent = '連線失敗';
+            isAuthReady = true;
+            alertModal(`Firebase 初始化失敗: ${error.message}`);
+        }
+    }
+
+
+    /**
+     * 處理投入金幣事件
+     */
+    window.insertCoin = function() {
+        initTone();
+        if (!isAuthReady) {
+            alertModal('連線準備中，請稍候再試。');
+            return;
+        }
+        
+        if (hasCoin) {
+            alertModal('您已經投入金幣了！請轉動把手。');
+            return;
+        }
+
+        hasCoin = true;
+        knobButton.disabled = false; 
+        coinButton.disabled = true; // 立即禁用按鈕
+
+        // 移除閃爍狀態
+        coinButton.classList.remove('coin-ready-flash');
+        
+        // 啟用插入瞬間的動畫/顏色
+        coinButton.classList.add('coin-inserted-flash');
+        coinStatus.textContent = '金幣已投入';
+        machineStatus.textContent = '金幣已投入！請轉動把手。';
+        playSFX('coin'); 
+        
+        // 瞬間動畫結束後，切換回深灰黑色 (Inactive/Used look)
+        setTimeout(() => {
+            coinButton.classList.remove('coin-inserted-flash');
+            // CSS 已經將基礎色設為 #374151 (深灰黑)
+        }, 150);
+    }
+
+    /**
+     * 處理轉動把手事件
+     */
+    window.pullLever = async function() {
+        if (!hasCoin) {
+            alertModal('請先投入金幣 ($) 才能轉動把手！');
+            return;
+        }
+        
+        if (!isAuthReady || !db || !userId) {
+            alertModal('資料庫尚未就緒，請稍候。');
+            return;
+        }
+        
+        // 重設投幣狀態
+        hasCoin = false;
+        knobButton.disabled = true;
+        
+        // 由於已經在 insertCoin() 中處理了 coinButton 的禁用和顏色，這裡只需保持禁用即可。
+        coinStatus.textContent = '投入金幣'; // 文字復原
+        
+        // 啟用轉動動畫
+        knob.classList.add('knob-turning-full'); 
+        machineStatus.textContent = '抽取中... (請等待)';
+        loadingSpinner.classList.remove('hidden');
+        playSFX('turn'); 
+        
+        // 1. 隨機抽取一個獎品 (加入彩蛋機率判定)
+        let newPrize;
+        const kinderJoyPrize = prizes.find(p => p.id === 7); // 彩蛋
+        const regularPrizes = prizes.filter(p => p.id !== 7); // 常規獎品
+        const RARE_CHANCE = 0.08; // 8% 機率
+
+        if (Math.random() < RARE_CHANCE) {
+            newPrize = kinderJoyPrize; // 抽到彩蛋
+        } else {
+            // 抽到常規獎品
+            const randomIndex = Math.floor(Math.random() * regularPrizes.length);
+            newPrize = regularPrizes[randomIndex];
+        }
+
+        const prizeData = { id: newPrize.id, timestamp: new Date().toISOString() };
+        currentPrize = newPrize; 
+
+        // 2. 隨機產生膠囊球的傾斜角度
+        const randomRotation = Math.floor(Math.random() * 91) - 45; // -45度 到 +45度
+
+        // 3. 視覺移除一個球池中的膠囊球
+        const currentCapsules = capsulePoolEl.querySelectorAll('.capsule');
+        if (currentCapsules.length > 0) {
+            // 嘗試移除一個顏色與中獎獎品基礎色相似的球，讓視覺更連貫
+            let capsuleToRemove = Array.from(currentCapsules).find(c => c.style.backgroundColor.includes(currentPrize.base_color));
+
+            // 如果沒有相似顏色的，則隨機選一個移除
+            if (!capsuleToRemove) {
+                const randomCapsuleIndex = Math.floor(Math.random() * currentCapsules.length);
+                capsuleToRemove = currentCapsules[randomCapsuleIndex];
+            }
+            
+            // 模擬球被抽走後向下滾落並淡出的效果
+            capsuleToRemove.style.transition = 'transform 0.5s ease-out, opacity 0.5s ease-out';
+            capsuleToRemove.style.transform = `translateY(150px) scale(0.1) rotate(${Math.random() * 360}deg)`; 
+            capsuleToRemove.style.opacity = '0';
+            
+            // 移除資料中的膠囊球
+            // 由於 capsulePoolData 中的數據較為靜態，我們在這裡直接在 UI 移除並更新 data
+            const indexToRemove = Array.from(currentCapsules).findIndex(c => c === capsuleToRemove);
+            if(indexToRemove !== -1) {
+                 capsulePoolData.splice(indexToRemove, 1);
+            }
+            
+            // 延遲 500ms 讓選中的球落下的動畫完成
+            setTimeout(() => {
+                capsuleToRemove.remove();
+                
+                // === 關鍵修正：微調所有剩餘膠囊的位置，模擬重力沉降和水平位移 ===
+                const percentageAdjustment = 1.2; // 1.2% for vertical sink
+                const horizontalJiggle = 2; // max 2% horizontal shift
+
+                capsulePoolData.forEach(data => {
+                    if (typeof data.top === 'number' && typeof data.left === 'number') {
+                        // 1. 垂直沉降 (向下移動 1.2%)
+                        data.top = Math.min(95, data.top + percentageAdjustment);
+
+                        // 2. 水平填補空隙 (隨機左右移動 -2% 到 +2%)
+                        const jiggle = (Math.random() - 0.5) * horizontalJiggle; // -1 to +1, multiplied by 2 -> -2 to +2
+                        data.left = data.left + jiggle;
+
+                        // 確保 left 留在範圍內
+                        data.left = Math.max(0, Math.min(95, data.left));
+                    }
+                });
+                renderCapsulePool(); 
+                // ===================================================
+
+            }, 500); 
+        }
+
+        // 4. 儲存獎品到 Firestore
+        try {
+            const userDocRef = doc(db, 'artifacts', appId, 'users', userId, 'urology_gacha', 'prizes');
+            // 使用 arrayUnion 嘗試更新，如果文件不存在，則會進入 catch 區塊
+            await updateDoc(userDocRef, { collectedPrizes: arrayUnion(prizeData) });
+        } catch (error) {
+            // 如果文件不存在 (第一次抽獎)，則創建新文件
+            if (error.code === 'not-found') {
+                try {
+                     await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'urology_gacha', 'prizes'), {
+                        userId: userId,
+                        collectedPrizes: [prizeData]
+                    });
+                } catch (createError) {
+                    console.error("首次創建文件失敗:", createError);
+                    alertModal("錯誤：無法儲存您的獎品。");
+                }
+            } else {
+                console.error("抽獎時發生 Firestore 錯誤:", error);
+                alertModal("錯誤：抽獎時無法連線至資料庫。");
+            }
+        }
+
+        // 5. UI 延遲：等待 1.5s 動畫結束後，膠囊球才出現
+        setTimeout(() => {
+            knob.classList.remove('knob-turning-full'); 
+            
+            // 膠囊球出現並等待拿取
+            machineStatus.textContent = '請點擊膠囊球拿取獎品！';
+            loadingSpinner.classList.add('hidden');
+            
+            // 設置膠囊球樣式和隨機旋轉
+            prizeChute.className = `capsule-in-chute flex items-center justify-center text-3xl font-bold prize-out text-white transition`;
+            prizeChute.style.backgroundColor = currentPrize.base_color; 
+            prizeChute.style.transform = `rotate(${randomRotation}deg)`; // 應用隨機傾斜
+            prizeChute.textContent = currentPrize.icon;
+            prizeChute.disabled = false;
+            prizeChute.onclick = window.collectPrize; 
+            
+            playSFX('drop'); 
+        }, 1500); 
+    }
+
+    /**
+     * 顯示最新抽獎結果
+     */
+    function showLatestPrizeContent(prize) {
+        latestPrizeDisplay.innerHTML = `
+            <div class="flex items-center mb-2">
+                <span class="text-4xl mr-3" style="color: ${prize.base_color};">${prize.icon}</span>
+                <p class="text-xl font-bold text-gray-800">${prize.name} ${prize.id === 7 ? '<span class="text-sm text-pink-600 font-bold ml-1">(彩蛋)</span>' : ''}</p>
+            </div>
+            <p class="text-sm text-gray-600">${prize.description}</p>
+        `;
+    }
+
+    /**
+     * 處理點擊膠囊球 (拿取) 事件
+     */
+    window.collectPrize = function() {
+        if (!currentPrize) return;
+
+        // 1. 顯示獎品內容
+        showLatestPrizeContent(currentPrize);
+        
+        // 2. 模擬拿走效果
+        prizeChute.classList.add('scale-0', 'opacity-0'); 
+        
+        // 延遲重設 UI
+        setTimeout(() => {
+            // 恢復為凹槽的預設外觀
+            prizeChute.className = 'w-[70px] h-[70px] bg-[#374151] rounded-[10px] border-2 border-[#555] flex justify-center items-center transition';
+            prizeChute.style.backgroundColor = ''; 
+            prizeChute.style.transform = ''; // 清除旋轉
+            prizeChute.textContent = ''; 
+            prizeChute.disabled = true;
+            prizeChute.onclick = null;
+            currentPrize = null;
+            
+            // 提示使用者投幣
+            machineStatus.textContent = '請投入金幣 (1/1)';
+            knobButton.disabled = true;
+            
+            // 重新啟用投幣口並開始閃爍
+            coinButton.disabled = false;
+            coinButton.classList.add('coin-ready-flash');
+            
+        }, 500); // 讓 scale-0, opacity-0 的過渡有時間完成
+    }
+
+    // 啟動應用程式
+    window.onload = function () {
+        renderCapsulePool(); // 繪製初始膠囊球
+        initFirebase(); // 啟動 Firebase
+        
+        // 初始狀態：投幣口應該閃爍
+        coinButton.classList.add('coin-ready-flash');
+    }
+
+</script>
+
