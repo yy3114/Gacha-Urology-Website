@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>泌尿健康扭蛋機 v7 (下沉與位移修復)</title>
+    <title>泌尿健康扭蛋機 v12 (限制3次搖動)</title>
     <!-- PWA 配置開始 -->
     <meta name="theme-color" content="#c02a2a"> 
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -33,6 +33,18 @@
         .gacha-machine:hover {
             transform: translateY(-5px);
         }
+        /* 搖晃動畫 Keyframes */
+        @keyframes shake {
+            0%, 100% { transform: translate(0, 0) translateY(-5px); }
+            10%, 30%, 50%, 70%, 90% { transform: translate(-3px, 0) translateY(-5px); }
+            20%, 40%, 60%, 80% { transform: translate(3px, 0) translateY(-5px); }
+        }
+        /* 應用搖晃動畫 */
+        .gacha-machine.shaking {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+            transform: none !important; 
+        }
+
         .gacha-container {
             background: rgba(255, 255, 255, 0.9);
             backdrop-filter: blur(3px);
@@ -68,7 +80,7 @@
             opacity: 0.9; 
             z-index: 1; 
             border: 2px solid rgba(255, 255, 255, 0.5);
-            /* 關鍵修復: 確保過渡效果足夠平滑，用於下沉和位移 */
+            /* 關鍵：下沉與位移過渡效果，用於轉動和搖晃 */
             transition: all 0.6s cubic-bezier(0.42, 0, 0.58, 1); 
         }
         .capsule-pool {
@@ -103,6 +115,808 @@
         }
         #prize-chute:not([disabled]) {
             cursor: pointer;
+        }
+        /* 投幣孔樣式 */
+        #coin-button {
+            width: 1rem; 
+            height: 3rem; 
+            background-color: #374151; 
+            border-radius: 0.25rem; 
+            border: 2px solid #1f2937;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5); 
+            font-size: 0; 
+            transition: box-shadow 0.1s ease-out;
+            transform: none; 
+        }
+        /* 投幣孔 active 狀態 - 僅改變陰影，無位移/縮放 */
+        #coin-button:active:not([disabled]) {
+            box-shadow: inset 0 0 8px rgba(0,0,0,0.7);
+            transform: none; 
+        }
+        .coin-ready-flash {
+            animation: pulseCoin 1.5s infinite alternate; 
+        }
+        @keyframes pulseCoin {
+            0% { background-color: #374151; } 
+            100% { background-color: #fcd34d; } 
+        }
+        .coin-inserted-flash {
+            background-color: #fcd34d !important; 
+            transition: background-color 0.1s ease-in-out;
+        }
+        .capsule-in-chute {
+            width: 50px !important;
+            height: 50px !important;
+            border-radius: 50% !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3), inset 0 0 8px rgba(255, 255, 255, 0.5);
+            font-size: 1.5rem !important;
+            color: white !important;
+            background-color: transparent !important; 
+            border: 2px solid rgba(255, 255, 255, 0.8) !important;
+            transition: all 0.3s ease, transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+        }
+        #custom-modal > div {
+            transition: transform 0.3s ease-out;
+        }
+        .scale-100 {
+            transform: scale(1) !important;
+        }
+    </style>
+</head>
+<body>
+
+<div class="p-4 w-full max-w-4xl flex flex-col lg:flex-row gap-8">
+
+    <!-- 扭蛋機本體 (左側/上側) -->
+    <div id="gacha-machine" class="gacha-machine w-full lg:w-1/2 mx-auto rounded-2xl p-4 flex flex-col items-center">
+        <!-- 標題調整：v12 縮小 -->
+        <h1 class="text-3xl font-bold text-white mb-4 shadow-sm">泌尿健康扭蛋機 <span class="text-xl font-normal">v12</span></h1>
+        
+        <!-- 扭蛋展示區 (透明圓筒) -->
+        <div class="gacha-container w-full h-64 rounded-xl border-4 border-gray-700 p-2 relative">
+            
+            <!-- 機台狀態提示 (上移) -->
+            <div class="absolute text-center text-gray-700 font-semibold z-20 top-4 left-1/2 transform -translate-x-1/2 status-display">
+                <p id="machine-status" class="text-xl text-gray-800">請先投入金幣 (1/1)</p>
+                <!-- 音訊狀態區 -->
+                <div id="audio-status" class="text-xs mt-1">
+                    <span id="audio-message" class="text-gray-500">音效狀態: 待啟動</span>
+                </div>
+                <!-- 新增：安靜的儲存錯誤提示 -->
+                <p id="storage-warning" class="text-xs text-red-700 font-bold mt-1 hidden">資料儲存已禁用</p>
+                <div id="loading-spinner" class="hidden animate-spin rounded-full h-8 w-8 border-b-2 border-red-700 mt-2 mx-auto"></div>
+            </div>
+
+            <!-- 扭蛋球池：由 JavaScript 動態生成和移除 -->
+            <div class="capsule-pool" id="capsule-pool">
+                <!-- 膠囊球將在這裡動態生成 -->
+            </div>
+        </div>
+
+        <!-- 投幣/轉動機構/搖動按鈕 (紅色的機身下半部) -->
+        <div class="w-full bg-red-800 p-4 mt-4 rounded-xl flex justify-around items-center border-t-4 border-gray-700 relative">
+            
+            <!-- 投幣口 (左側) -->
+            <div class="flex flex-col items-center">
+                <button id="coin-button" onclick="insertCoin()" class="hover:opacity-80 transition duration-150 disabled:opacity-80 coin-ready-flash">
+                    <!-- 空白內容，由 CSS 決定尺寸和形狀 -->
+                </button>
+                <p id="coin-status" class="text-sm text-yellow-300 mt-1">投入金幣</p>
+            </div>
+            
+            <!-- 轉動把手 (中間) -->
+            <div class="flex flex-col items-center">
+                <button id="knob-button" onclick="pullLever()" class="relative bg-gray-800 p-2 rounded-full cursor-pointer hover:bg-gray-900 transition duration-150 active:scale-95 disabled:opacity-50" disabled>
+                    <div id="knob" class="w-12 h-12 bg-gray-500 rounded-full flex items-center justify-center transition duration-150">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path></svg>
+                    </div>
+                </button>
+                <p class="text-sm text-white mt-1">轉動把手</p>
+            </div>
+
+            <!-- 搖動按鈕 (右側) -->
+            <div class="flex flex-col items-center">
+                <button id="shake-button" onclick="shakeMachine()" class="bg-yellow-400 p-3 rounded-full shadow-lg hover:bg-yellow-500 active:scale-90 transition disabled:opacity-50" title="搖動機台，讓膠囊球集中">
+                    <svg class="w-6 h-6 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </button>
+                <p id="shake-status" class="text-sm text-yellow-300 mt-1">搖動機台</p>
+            </div>
+        </div>
+
+        <!-- 獎品出口 (立體凹槽) -->
+        <div class="w-full flex justify-center -mt-4">
+            <div id="prize-chute-container" class="mt-4">
+                <!-- 獎品出口按鈕 (凹槽內部/膠囊球出現位置) -->
+                <button id="prize-chute" disabled>
+                    <!-- 預設無內容 -->
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 抽獎結果與收藏 (右側/下側) -->
+    <div class="w-full lg:w-1/2 bg-white rounded-2xl p-6 shadow-xl">
+        <h2 class="text-2xl font-bold text-gray-800 border-b pb-2 mb-4">我的健康收藏</h2>
+
+        <!-- 最新抽獎結果顯示區 -->
+        <div class="mb-6 border-2 border-dashed border-red-300 p-4 rounded-lg">
+            <h3 class="text-xl font-semibold text-red-600 mb-2">最新抽獎：</h3>
+            <div id="latest-prize-display" class="min-h-[80px] flex flex-col justify-center items-start">
+                <p class="text-gray-500">尚無最新獎品。</p>
+            </div>
+        </div>
+
+        <!-- 收藏清單 -->
+        <div>
+            <h3 class="text-xl font-semibold text-gray-800 mb-2">所有收藏 (<span id="total-prizes">0</span> 個):</h3>
+            <div id="prize-collection" class="max-h-60 overflow-y-auto space-y-3 p-2 bg-gray-50 rounded-lg">
+                <p id="initial-loading-message" class="text-sm text-gray-500">載入中...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    // 引入 Tone.js 庫 (用於音效)
+    import * as Tone from "https://cdn.jsdelivr.net/npm/tone@14.7.58/build/Tone.js";
+
+    // --- 【本地儲存配置】 ----------------------------------------------------
+    const LOCAL_STORAGE_KEY = 'urologyGachaCollection'; 
+    // ----------------------------------------------------------------------
+
+
+    // 應用程式狀態變數
+    let hasCoin = false; 
+    let currentPrize = null; 
+    let isAudioActive = false; 
+    let isAudioContextStarting = false; 
+    let collectedPrizes = []; 
+    let storageIsBlocked = false; 
+    let isShaking = false; 
+
+    // 新增：搖動次數限制變數
+    const MAX_SHAKES = 3; // *** 更新為最大可搖動次數 3 次 ***
+    let shakeCount = 0;    // 當前搖動次數
+
+    // DOM 元素
+    const gachaMachine = document.getElementById('gacha-machine'); 
+    const knobButton = document.getElementById('knob-button');
+    const knob = document.getElementById('knob');
+    const machineStatus = document.getElementById('machine-status');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const prizeChute = document.getElementById('prize-chute');
+    const latestPrizeDisplay = document.getElementById('latest-prize-display');
+    const prizeCollectionEl = document.getElementById('prize-collection');
+    const totalPrizesEl = document.getElementById('total-prizes');
+    const coinButton = document.getElementById('coin-button');
+    const coinStatus = document.getElementById('coin-status');
+    const audioMessage = document.getElementById('audio-message');
+    const capsulePoolEl = document.getElementById('capsule-pool');
+    const storageWarning = document.getElementById('storage-warning'); 
+    const shakeButton = document.getElementById('shake-button'); 
+    const shakeStatus = document.getElementById('shake-status'); // 搖動狀態文字
+
+    // Tone.js 音效設定
+    let synth = null;
+    let noiseSynth = null; 
+    let shaker = null; 
+
+    // 泌尿科主題獎品清單
+    const prizes = [
+        { id: 1, name: '膀胱君的貼心提醒', icon: '💧', color: 'bg-blue-500', base_color: '#3b82f6', description: '保持水分充足，深黃色尿液是警訊！多喝水，你的膀胱君會感謝你。' },
+        { id: 2, name: '腎臟超人的預防秘訣', icon: '💎', color: 'bg-yellow-500', base_color: '#f59e0b', description: '避免高鈉飲食，幫助腎臟超人遠離結石危機。' },
+        { id: 3, name: '前列腺守護者的問候', icon: '🛡️', color: 'bg-red-500', base_color: '#ef4444', description: '50歲以上的男性，定期檢查是關鍵！關心前列腺健康。' },
+        { id: 4, name: '泌尿道健康卡', icon: '🚽', color: 'bg-green-500', base_color: '#22c55e', description: '不要憋尿！每次上廁所都是對泌尿道最好的保護。' },
+        { id: 5, name: '健康黃金法則', icon: '✨', color: 'bg-purple-500', base_color: '#a855f7', description: '規律運動，維持正常體重，對整體泌尿系統都有益處。' },
+        { id: 6, name: '咖啡因與茶的平衡', icon: '☕', color: 'bg-indigo-500', base_color: '#6366f1', description: '過量咖啡因和茶類可能刺激膀胱，適度就好！' },
+        // 彩蛋獎品 (ID 7)
+        { id: 7, name: '健達奇趣蛋', icon: '🍫', color: 'bg-pink-300', base_color: '#f9a8d4', description: '恭喜！這是機率超低的彩蛋獎品！希望裡面是好玩的玩具！' },
+    ];
+    
+    // 膠囊球池的靜態位置數據
+    let capsulePoolData = [
+        { color: 'linear-gradient(135deg, #38bdf8 50%, #0369a1 50%)', icon: '💧', left: 3, top: 80, rotate: 10, z: 10 },
+        { color: 'linear-gradient(135deg, #facc15 50%, #b45309 50%)', icon: '💎', left: 13, top: 75, rotate: -5, z: 12 },
+        { color: 'linear-gradient(135deg, #f43f5e 50%, #9f1239 50%)', icon: '🛡️', left: 25, top: 85, rotate: 25, z: 15 },
+        { color: 'linear-gradient(135deg, #10b981 50%, #065f46 50%)', icon: '🚽', left: 40, top: 78, rotate: -15, z: 11 },
+        { color: 'linear-gradient(135deg, #a855f7 50%, #6d28d9 50%)', icon: '✨', left: 55, top: 88, rotate: 40, z: 14 },
+        { color: 'linear-gradient(135deg, #6366f1 50%, #3730a3 50%)', icon: '☕', left: 70, top: 82, rotate: 0, z: 13 },
+        { color: 'linear-gradient(135deg, #fb7185 50%, #be123c 50%)', icon: '💧', left: 85, top: 75, rotate: 18, z: 11 },
+        { color: 'linear-gradient(135deg, #2563eb 50%, #1e3a8a 50%)', icon: '💎', left: 5, top: 90, rotate: -25, z: 16 }, 
+        { color: 'linear-gradient(135deg, #f9a8d4 50%, #db2777 50%)', icon: '🍫', left: 90, top: 80, rotate: 35, z: 15 }, 
+        { color: 'linear-gradient(135deg, #06b6d4 50%, #0e7490 50%)', icon: '💎', left: 8, top: 60, rotate: -22, z: 14 },
+        { color: 'linear-gradient(135deg, #4ade80 50%, #16a34a 50%)', icon: '🛡️', left: 30, top: 68, rotate: 5, z: 10 },
+        { color: 'linear-gradient(135deg, #ffedd5 50%, #fef3c7 50%)', icon: '🚽', left: 55, top: 65, rotate: 30, z: 15, text_color: '#6d28d9' },
+        { color: 'linear-gradient(135deg, #ef4444 50%, #b91c1c 50%)', icon: '✨', left: 75, top: 70, rotate: -5, z: 12 },
+        { color: 'linear-gradient(135deg, #3b82f6 50%, #1d4ed8 50%)', icon: '☕', left: 88, top: 60, rotate: 15, z: 13 },
+        { color: 'linear-gradient(135deg, #10b981 50%, #065f46 50%)', icon: '💧', left: 45, top: 70, rotate: 10, z: 14 }, 
+        { color: 'linear-gradient(135deg, #a78bfa 50%, #6d28d9 50%)', icon: '☕', left: 20, top: 62, rotate: -18, z: 11 }, 
+        { color: 'linear-gradient(135deg, #facc15 50%, #b45309 50%)', icon: '💧', left: 0, top: 48, rotate: 70, z: 10 },
+        { color: 'linear-gradient(135deg, #a78bfa 50%, #6d28d9 50%)', icon: '💎', left: 20, top: 55, rotate: -10, z: 11 },
+        { color: 'linear-gradient(135deg, #f43f5e 50%, #9f1239 50%)', icon: '🛡️', left: 45, top: 58, rotate: 50, z: 14 },
+        { color: 'linear-gradient(135deg, #10b981 50%, #065f46 50%)', icon: '🚽', left: 15, top: 40, rotate: -30, z: 10 },
+        { color: 'linear-gradient(135deg, #f97316 50%, #c2410c 50%)', icon: '✨', left: 68, top: 50, rotate: 20, z: 11 },
+        { color: 'linear-gradient(135deg, #3b82f6 50%, #1d4ed8 50%)', icon: '☕', left: 80, top: 45, rotate: -10, z: 13 },
+        { color: 'linear-gradient(135deg, #fb7185 50%, #be123c 50%)', icon: '💧', left: 95, top: 40, rotate: 5, z: 14 },
+        { color: 'linear-gradient(135deg, #06b6d4 50%, #0e7490 50%)', icon: '💎', left: 35, top: 48, rotate: -15, z: 12 },
+        { color: 'linear-gradient(135deg, #4ade80 50%, #16a34a 50%)', icon: '🛡️', left: 58, top: 40, rotate: 45, z: 15 }, 
+        { color: 'linear-gradient(135deg, #facc15 50%, #b45309 50%)', icon: '🚽', left: 85, top: 55, rotate: -20, z: 10 }, 
+        { color: 'linear-gradient(135deg, #a78bfa 50%, #6d28d9 50%)', icon: '✨', left: 25, top: 30, rotate: 15, z: 9 },
+        { color: 'linear-gradient(135deg, #4ade80 50%, #16a34a 50%)', icon: '🛡️', left: 60, top: 35, rotate: -20, z: 9 },
+        { color: 'linear-gradient(135deg, #f9a8d4 50%, #db2777 50%)', icon: '🍫', left: 10, top: 35, rotate: 30, z: 8 }, 
+        { color: 'linear-gradient(135deg, #3b82f6 50%, #1d4ed8 50%)', icon: '💎', left: 75, top: 30, rotate: -5, z: 8 }, 
+        { color: 'linear-gradient(135deg, #f97316 50%, #c2410c 50%)', icon: '☕', left: 40, top: 35, rotate: 10, z: 7 }, 
+    ];
+
+
+    /**
+     * 自訂彈出視窗取代 alert()
+     */
+    function alertModal(message) {
+        let modal = document.getElementById('custom-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'custom-modal';
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 transition-opacity duration-300 opacity-0 pointer-events-none';
+            modal.innerHTML = `
+                <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm mx-4 transform scale-95 transition-transform duration-300">
+                    <p id="modal-message" class="text-gray-800 font-semibold mb-4"></p>
+                    <button onclick="document.getElementById('custom-modal').classList.add('opacity-0', 'pointer-events-none'); document.getElementById('custom-modal').querySelector('div').classList.remove('scale-100');" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition">
+                        確定
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+        
+        document.getElementById('modal-message').textContent = message;
+        
+        setTimeout(() => {
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.querySelector('div').classList.add('scale-100');
+        }, 10);
+    }
+    window.alertModal = alertModal;
+
+
+    /**
+     * 動態渲染膠囊球池
+     */
+    function renderCapsulePool() {
+        capsulePoolEl.innerHTML = ''; 
+        capsulePoolData.forEach((data, index) => {
+            const capsule = document.createElement('span');
+            capsule.id = `capsule-${index}`; 
+            capsule.className = 'capsule';
+            capsule.innerHTML = data.icon;
+            capsule.style.cssText = `
+                background: ${data.color};
+                left: ${data.left}%;
+                top: ${data.top}%;
+                transform: rotate(${data.rotate}deg);
+                z-index: ${data.z};
+                ${data.text_color ? `color: ${data.text_color};` : ''}
+            `;
+            // 在元素上儲存初始位置數據，以供後續計算
+            capsule.dataset.initialLeft = data.left;
+            capsule.dataset.initialTop = data.top;
+            capsulePoolEl.appendChild(capsule);
+        });
+    }
+
+    // --- 【音效邏輯】 ---
+    /**
+     * 設置 Tone.js 的合成器
+     */
+    function setupAudioSynths() {
+        if (isAudioActive) return;
+
+        try {
+            // 初始化 Tone.js 合成器
+            synth = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "triangle" },
+                envelope: { release: 0.1, attack: 0.005 }
+            }).toDestination();
+            
+            noiseSynth = new Tone.NoiseSynth({
+                noise: { type: "white" },
+                envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.1 }
+            }).toDestination();
+
+            // 搖晃音效 (短促的低通濾波白噪音)
+            shaker = new Tone.NoiseSynth({
+                noise: { type: "pink" },
+                envelope: { attack: 0.005, decay: 0.15, sustain: 0.0, release: 0.05 }
+            }).connect(new Tone.Filter(800, 'lowpass')).toDestination();
+
+            isAudioActive = true;
+            isAudioContextStarting = false;
+            audioMessage.className = 'text-green-600 font-bold';
+            audioMessage.textContent = '音效狀態: 啟用成功 ✅';
+
+        } catch (e) {
+            handleAudioError(e);
+        }
+    }
+
+    /**
+     * 嘗試啟動 Tone.js (非同步)
+     */
+    function initTone() {
+        if (isAudioActive || isAudioContextStarting) return;
+        
+        isAudioContextStarting = true;
+        audioMessage.className = 'text-yellow-600';
+        audioMessage.textContent = '音效狀態: 嘗試啟動...';
+
+        Tone.start().then(() => {
+            setupAudioSynths();
+            console.log("Tone.js AudioContext 啟動成功。");
+        }).catch(e => {
+            handleAudioError(e);
+        });
+    }
+
+    /**
+     * 處理音訊錯誤
+     */
+    function handleAudioError(e) {
+        console.warn("Tone.js 初始化失敗:", e);
+        isAudioActive = false;
+        isAudioContextStarting = false;
+        audioMessage.className = 'text-red-600 font-bold';
+        audioMessage.textContent = '音效狀態: 禁用 ❌ (請點擊投幣嘗試啟用)';
+    }
+
+    /**
+     * 播放音效
+     */
+    function playSFX(type) {
+        if (!isAudioActive) return;
+        
+        const now = Tone.now(); 
+
+        try {
+            switch (type) {
+                case 'coin':
+                    synth.triggerAttackRelease("C5", "8n", now);
+                    break;
+                case 'turn':
+                    noiseSynth.triggerAttackRelease("16n", now + 0.1, 0.3); 
+                    break;
+                case 'drop':
+                    synth.triggerAttackRelease(["G4", "C4"], "16n", now, 0.8);
+                    break;
+                case 'shake': 
+                    shaker.triggerAttackRelease("4n", now, 0.5); 
+                    break;
+            }
+        } catch (e) {
+            console.error("音效播放期間發生錯誤:", e);
+        }
+    }
+
+    // --- 【儲存與收藏邏輯 (保持不變)】 ---
+    
+    /**
+     * 檢查 LocalStorage 是否可用
+     */
+    function checkStorageAvailability() {
+        try {
+            const storage = window.localStorage;
+            const testKey = '__storage_test__';
+            storage.setItem(testKey, testKey);
+            storage.removeItem(testKey);
+            storageIsBlocked = false;
+        } catch (e) {
+            storageIsBlocked = true;
+            console.warn("LocalStorage 被瀏覽器禁用 (通常是私密模式或 iframe 限制):", e);
+            storageWarning.textContent = '❌ 收藏無法永久儲存 (請勿使用私密瀏覽)';
+            storageWarning.classList.remove('hidden');
+        }
+    }
+
+
+    /**
+     * 從 LocalStorage 載入並渲染收藏
+     */
+    function loadAndRenderCollection() {
+        let storedData = null;
+
+        if (!storageIsBlocked) {
+            storedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+        }
+
+        try {
+            collectedPrizes = storedData ? JSON.parse(storedData) : [];
+        } catch (e) {
+            console.error("解析 LocalStorage 資料失敗:", e);
+            collectedPrizes = []; 
+            
+            if (!storageIsBlocked) { 
+                storageIsBlocked = true; 
+                storageWarning.textContent = '❌ 收藏資料已損壞或被禁用';
+                storageWarning.classList.remove('hidden');
+            }
+        }
+        
+        collectedPrizes.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); 
+
+        prizeCollectionEl.innerHTML = ''; 
+        totalPrizesEl.textContent = collectedPrizes.length;
+        
+        const initialLoadingMessage = document.getElementById('initial-loading-message');
+        if (initialLoadingMessage) {
+            initialLoadingMessage.remove(); 
+        }
+
+        if (collectedPrizes.length === 0) {
+            prizeCollectionEl.innerHTML = '<p class="text-sm text-gray-500 italic">還沒有任何收藏。試著扭一個吧！</p>';
+        } else {
+            collectedPrizes.forEach((prizeEntry) => {
+                const prizeDetail = prizes.find(p => p.id === prizeEntry.id) || { name: '未知獎品', icon: '❓', color: 'bg-gray-400', base_color: '#9ca3af' };
+
+                const item = document.createElement('div');
+                item.className = 'flex items-center space-x-3 p-2 bg-white rounded-lg shadow-sm';
+                item.innerHTML = `
+                    <span class="text-2xl" style="color: ${prizeDetail.base_color};">${prizeDetail.icon}</span>
+                    <div class="flex-grow">
+                        <p class="font-medium text-gray-700">${prizeDetail.name} ${prizeDetail.id === 7 ? '<span class="text-xs text-pink-600 font-bold ml-1">(彩蛋)</span>' : ''}</p>
+                        <p class="text-xs text-gray-400">${new Date(prizeEntry.timestamp).toLocaleString('zh-TW', { dateStyle: 'short', timeStyle: 'medium' })}</p>
+                    </div>
+                `;
+                prizeCollectionEl.appendChild(item);
+            });
+        }
+    }
+    
+    /**
+     * 將新獎品儲存到 LocalStorage
+     */
+    function savePrizeToLocalStorage(prizeData) {
+        collectedPrizes.push(prizeData);
+        
+        if (!storageIsBlocked) {
+            try {
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(collectedPrizes));
+            } catch (e) {
+                console.error("儲存 LocalStorage 失敗:", e);
+                storageIsBlocked = true;
+                storageWarning.textContent = '❌ 儲存失敗！收藏無法持久化';
+                storageWarning.classList.remove('hidden');
+            }
+        }
+        
+        loadAndRenderCollection(); 
+    }
+
+
+    /**
+     * 禁用/啟用所有互動按鈕
+     */
+    function setControlsDisabled(disabled) {
+        coinButton.disabled = disabled;
+        knobButton.disabled = disabled || !hasCoin;
+        // 搖動按鈕在達到上限後，如果沒有其他操作，可以保持禁用
+        shakeButton.disabled = disabled || (shakeCount >= MAX_SHAKES && !currentPrize && !hasCoin); 
+        // 獎品出口按鈕根據是否有獎品決定
+        prizeChute.disabled = disabled || !currentPrize; 
+    }
+
+    /**
+     * 更新搖動按鈕下方的狀態文字
+     */
+    function updateShakeStatus() {
+        const remaining = MAX_SHAKES - shakeCount;
+        if (remaining <= 0) {
+            shakeStatus.textContent = `搖動已達上限 (${MAX_SHAKES}/${MAX_SHAKES})`;
+            shakeStatus.classList.remove('text-yellow-300');
+            shakeStatus.classList.add('text-red-400');
+        } else if (shakeCount > 0) {
+            shakeStatus.textContent = `剩餘搖動: ${remaining} 次`;
+            shakeStatus.classList.remove('text-red-400');
+            shakeStatus.classList.add('text-yellow-300');
+        } else {
+            shakeStatus.textContent = `搖動次數: 0/${MAX_SHAKES}`;
+            shakeStatus.classList.remove('text-red-400');
+            shakeStatus.classList.add('text-yellow-300');
+        }
+    }
+
+
+    /**
+     * 處理搖動機台事件
+     */
+    window.shakeMachine = function() {
+        initTone();
+
+        if (isShaking) return;
+        
+        // 檢查次數限制
+        if (shakeCount >= MAX_SHAKES) {
+            alertModal(`已達到最大搖動次數 ${MAX_SHAKES} 次。球池已穩定，請投入金幣或轉動把手。`);
+            return;
+        }
+
+        isShaking = true;
+        setControlsDisabled(true); 
+        
+        playSFX('shake'); 
+        
+        gachaMachine.classList.add('shaking');
+        machineStatus.textContent = '機台搖晃中...';
+
+        shakeCount++; // 在搖晃開始時增加次數
+
+        // 膠囊球沉降邏輯：只有前 MAX_SHAKES 次搖晃會導致位置變化 (即 1, 2, 3 次)
+        if (shakeCount <= MAX_SHAKES) {
+            const currentCapsules = capsulePoolEl.querySelectorAll('.capsule');
+            currentCapsules.forEach(capsule => {
+                // 1. 獲取當前位置
+                const originalTopStr = capsule.style.top;
+                const originalLeftStr = capsule.style.left;
+                const originalTop = parseFloat(originalTopStr) || 0; 
+                const originalLeft = parseFloat(originalLeftStr) || 0;
+                
+                // 2. 沉降效果: 向下移動 1% 到 2%
+                const sinkAmount = (Math.random() * 1) + 1; 
+                let newTop = originalTop + sinkAmount;
+                newTop = Math.min(newTop, 95); 
+
+                // 3. 水平微調: 輕微左右晃動後穩定
+                const repositionAmount = (Math.random() * 4) - 2; // -2% to +2%
+                let newLeft = originalLeft + repositionAmount;
+                newLeft = Math.min(Math.max(newLeft, 0), 95); 
+
+                // 4. 旋轉：輕微晃動後穩定在新的隨機角度
+                const newRotation = Math.floor(Math.random() * 20) - 10; // -10deg to 10deg
+
+                // 應用新位置 (使用過渡效果)
+                capsule.style.transition = 'all 0.4s cubic-bezier(0.42, 0, 0.58, 1)';
+                capsule.style.top = `${newTop}%`;
+                capsule.style.left = `${newLeft}%`;
+                capsule.style.transform = `rotate(${newRotation}deg)`; 
+            });
+        }
+        
+        // 更新搖動狀態文字
+        updateShakeStatus();
+
+
+        // 0.5 秒後結束搖晃
+        setTimeout(() => {
+            gachaMachine.classList.remove('shaking');
+            
+            // 更新主機台狀態提示
+            let mainStatusText;
+            if (currentPrize) {
+                mainStatusText = '請點擊膠囊球拿取獎品！';
+            } else if (hasCoin) {
+                mainStatusText = '金幣已投入！請轉動把手。';
+            } else if (shakeCount >= MAX_SHAKES) {
+                 mainStatusText = `搖動已達上限。請投入金幣。`;
+            } else {
+                 mainStatusText = '請投入金幣 (1/1)';
+            }
+            machineStatus.textContent = mainStatusText;
+            
+            isShaking = false;
+            setControlsDisabled(false); 
+        }, 500); 
+    }
+
+
+    /**
+     * 處理投入金幣事件
+     */
+    window.insertCoin = function() {
+        initTone();
+        
+        if (hasCoin) {
+            alertModal('您已經投入金幣了！請轉動把手。');
+            return;
+        }
+
+        hasCoin = true;
+        setControlsDisabled(false); // 啟用把手
+        coinButton.disabled = true; // 禁用投幣口
+
+        coinButton.classList.remove('coin-ready-flash');
+        coinStatus.textContent = '金幣已投入';
+        machineStatus.textContent = '金幣已投入！請轉動把手。';
+        
+        playSFX('coin'); 
+        
+        setTimeout(() => {
+            coinButton.classList.remove('coin-inserted-flash');
+        }, 150);
+    }
+
+    /**
+     * 處理轉動把手事件
+     */
+    window.pullLever = async function() {
+        if (!hasCoin) {
+            alertModal('請先投入金幣 ($) 才能轉動把手！');
+            return;
+        }
+        
+        hasCoin = false;
+        setControlsDisabled(true); 
+        
+        coinStatus.textContent = '投入金幣'; 
+        
+        knob.classList.add('knob-turning-full'); 
+        machineStatus.textContent = '抽取中... (請等待)';
+        loadingSpinner.classList.remove('hidden');
+        
+        playSFX('turn'); 
+        
+        // 1. 隨機抽取一個獎品
+        let newPrize;
+        const kinderJoyPrize = prizes.find(p => p.id === 7); 
+        const regularPrizes = prizes.filter(p => p.id !== 7); 
+        const RARE_CHANCE = 0.08; 
+
+        if (Math.random() < RARE_CHANCE) {
+            newPrize = kinderJoyPrize; 
+        } else {
+            const randomIndex = Math.floor(Math.random() * regularPrizes.length);
+            newPrize = regularPrizes[randomIndex];
+        }
+
+        const prizeData = { id: newPrize.id, timestamp: new Date().toISOString() };
+        currentPrize = newPrize; 
+
+        // 2. 隨機產生膠囊球的傾斜角度
+        const randomRotation = Math.floor(Math.random() * 91) - 45; 
+
+        // 3. 視覺移除一個球池中的膠囊球並讓其他球下沉/位移
+        const currentCapsules = capsulePoolEl.querySelectorAll('.capsule');
+        if (currentCapsules.length > 0) {
+            
+            let capsuleToRemove = Array.from(currentCapsules).find(c => c.style.background.includes(currentPrize.base_color));
+            if (!capsuleToRemove) {
+                const randomCapsuleIndex = Math.floor(Math.random() * currentCapsules.length);
+                capsuleToRemove = currentCapsules[randomCapsuleIndex];
+            }
+            
+            // --- 核心效果：下沉與位置變動效果 ---
+            currentCapsules.forEach(capsule => {
+                if (capsule !== capsuleToRemove) {
+                    const originalTopStr = capsule.style.top;
+                    const originalLeftStr = capsule.style.left;
+
+                    const originalTop = parseFloat(originalTopStr); 
+                    const originalLeft = parseFloat(originalLeftStr);
+                    
+                    // 下沉效果: 增加 top 值 (向下移動 1% 到 3%)
+                    const sinkAmount = (Math.random() * 2) + 1; 
+                    let newTop = originalTop + sinkAmount;
+                    newTop = Math.min(newTop, 95); 
+
+                    // 水平位移: 改變 left 值 (-5% 到 +5% 的隨機變動)
+                    const repositionAmount = (Math.random() * 10) - 5; 
+                    let newLeft = originalLeft + repositionAmount;
+                    newLeft = Math.min(Math.max(newLeft, 0), 95); 
+
+                    // 旋轉：輕微晃動後穩定在新的隨機角度
+                    const newRotation = Math.floor(Math.random() * 30) - 15; 
+
+                    capsule.style.transition = 'all 0.6s cubic-bezier(0.42, 0, 0.58, 1)';
+                    capsule.style.top = `${newTop}%`;
+                    capsule.style.left = `${newLeft}%`;
+                    capsule.style.transform = `rotate(${newRotation}deg)`; 
+                }
+            });
+            // --- 下沉/位移效果結束 ---
+
+            // 移除被選中的膠囊球 (落下效果)
+            capsuleToRemove.style.transition = 'transform 0.5s ease-out, opacity 0.5s ease-out';
+            capsuleToRemove.style.transform = `translateY(150px) scale(0.1) rotate(${Math.random() * 360}deg)`; 
+            capsuleToRemove.style.opacity = '0';
+            
+            setTimeout(() => {
+                capsuleToRemove.remove();
+            }, 500); 
+        }
+
+        // 4. 儲存獎品到 LocalStorage 
+        savePrizeToLocalStorage(prizeData);
+
+
+        // 5. UI 延遲：等待 1.5s 動畫結束後，膠囊球才出現
+        setTimeout(() => {
+            knob.classList.remove('knob-turning-full'); 
+            
+            machineStatus.textContent = '請點擊膠囊球拿取獎品！';
+            loadingSpinner.classList.add('hidden');
+            
+            prizeChute.className = `capsule-in-chute flex items-center justify-center text-3xl font-bold prize-out text-white transition`;
+            prizeChute.style.backgroundColor = currentPrize.base_color; 
+            prizeChute.style.transform = `rotate(${randomRotation}deg)`; 
+            prizeChute.textContent = currentPrize.icon;
+            prizeChute.onclick = window.collectPrize; 
+            
+            setControlsDisabled(false); // 啟用獎品出口按鈕
+            coinButton.disabled = true; // 保持投幣口禁用
+            knobButton.disabled = true; // 保持把手禁用
+            
+            playSFX('drop'); 
+        }, 1500); 
+    }
+
+    /**
+     * 顯示最新抽獎結果
+     */
+    function showLatestPrizeContent(prize) {
+        let specialMessage = '';
+        if (prize.id === 7) {
+            // 彩蛋獎品的中獎提示
+            specialMessage = '<p class="text-lg font-bold text-red-600 mt-3 p-3 bg-yellow-100 rounded-lg border border-red-400">🎉 恭喜中獎！請聯絡小編，把獎品送給您！</p>';
+        }
+
+        latestPrizeDisplay.innerHTML = `
+            <div class="flex items-center mb-2">
+                <span class="text-4xl mr-3" style="color: ${prize.base_color};">${prize.icon}</span>
+                <p class="text-xl font-bold text-gray-800">${prize.name} ${prize.id === 7 ? '<span class="text-sm text-pink-600 font-bold ml-1">(彩蛋)</span>' : ''}</p>
+            </div>
+            <p class="text-sm text-gray-600">${prize.description}</p>
+            ${specialMessage}
+        `;
+    }
+
+    /**
+     * 處理點擊膠囊球 (拿取) 事件
+     */
+    window.collectPrize = function() {
+        if (!currentPrize) return;
+
+        showLatestPrizeContent(currentPrize);
+        
+        prizeChute.classList.add('scale-0', 'opacity-0'); 
+        
+        setControlsDisabled(true); // 禁用所有控制項，直到重設完成
+
+        setTimeout(() => {
+            // 重設 UI
+            prizeChute.className = 'w-[70px] h-[70px] bg-[#374151] rounded-[10px] border-2 border-[#555] flex justify-center items-center transition';
+            prizeChute.style.backgroundColor = ''; 
+            prizeChute.style.transform = ''; 
+            prizeChute.textContent = ''; 
+            currentPrize = null;
+            
+            // 重設搖動次數
+            shakeCount = 0;
+            updateShakeStatus(); // 更新搖動狀態顯示
+
+            // 重設機台狀態為可投幣
+            machineStatus.textContent = '請投入金幣 (1/1)';
+            
+            // 重新啟用投幣口並開始閃爍
+            coinButton.disabled = false;
+            coinButton.classList.add('coin-ready-flash');
+            
+            // 啟用其他控制項 (除了把手，因為沒投幣)
+            setControlsDisabled(false);
+            knobButton.disabled = true;
+            
+        }, 500); 
+    }
+
+    // 啟動應用程式
+    window.onload = function () {
+        checkStorageAvailability(); // 檢查儲存是否被禁用
+        renderCapsulePool(); 
+        loadAndRenderCollection(); 
+        updateShakeStatus(); // 初始載入搖動狀態
+        setControlsDisabled(false); // 初始狀態
+        knobButton.disabled = true; // 初始狀態沒有金幣
+    }
+
+</script>
+
         }
         #coin-button {
             width: 1rem; 
